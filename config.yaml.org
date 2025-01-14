@@ -3,3 +3,6 @@ openai:
     
 huggingface:
   use_auth_token: "HUGGINGFACE_AUTH_TOKEN"
+
+llmknowledge2:
+  api_url: "https://<domain_of_llmknowledge2>/LLMKnowledge2/api.php"
