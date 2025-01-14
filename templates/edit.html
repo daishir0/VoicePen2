@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+
+{% block title %}編集{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <h1>レコーディング編集</h1>
+    {% for text_file in text_files %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="card-title">{{ text_file.name }}</h2>
+                <div class="mb-3">
+                    <audio id="audio_{{ text_file.name }}" controls preload="none" class="w-100">
+                        <source src="" type="audio/mpeg">
+                        お使いのブラウザはaudioタグに対応していません。
+                    </audio>
+                </div>
+                <div class="mb-3">
+                    <textarea 
+                        id="{{ text_file.name }}" 
+                        class="form-control" 
+                        rows="5" 
+                        onfocus="loadAudio('{{ text_file.name }}')"
+                        oninput="enableSaveButton('{{ text_file.name }}')"
+                        onkeydown="handleKeyDown(event, '{{ text_file.name }}')"
+                    >{{ text_file.read_text(encoding='utf-8') }}</textarea>
+                </div>
+                <div class="d-flex gap-2">
+                    <button id="save_{{ text_file.name }}" 
+                            onclick="saveText('{{ text_file.name }}')" 
+                            class="btn btn-success" 
+                            disabled>
+                        保存
+                    </button>
+                    <button onclick="deleteFiles('{{ text_file.name }}')" 
+                            class="btn btn-danger">
+                        削除
+                    </button>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+    <div class="d-flex gap-2"></div>
+        <button id="register_texts" 
+                onclick="registerTexts()" 
+                class="btn btn-primary">
+            KnowledgeDBへ登録
+        </button>
+        <button id="delete_all" 
+                onclick="deleteAllFiles()" 
+                class="btn btn-danger">
+            全て削除する
+        </button>
+    </div>
+</div>
+
+<script>
+    function saveText(fileName) {
+        const textarea = document.getElementById(fileName);
+        if (textarea.value.trim() === '') {
+            alert('テキストを入力してください。');
+            return;
+        }
+
+        fetch('/save_text', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ file_name: fileName, content: textarea.value }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            //alert(data.message || data.error);
+            document.getElementById('save_' + fileName).disabled = true;
+        });
+    }
+
+    function loadAudio(fileName) {
+        const audioElement = document.getElementById('audio_' + fileName);
+        const audioSource = audioElement.querySelector('source');
+        audioSource.src = '/audio/' + fileName.replace('.txt', '.mp3');
+        audioElement.load();
+    }
+
+    function deleteFiles(fileName) {
+        if (confirm("このファイルを削除しますか？")) {
+            fetch('/delete_files', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ file_name: fileName }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || data.error);
+                if (data.message) {
+                    location.reload();
+                }
+            });
+        }
+    }
+
+    function handleKeyDown(event, fileName) {
+        const textarea = document.getElementById(fileName);
+        if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+            event.preventDefault();
+            if (textarea.value.trim() !== '') {
+                saveText(fileName);
+            }
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            if (textarea.value.trim() !== '') {
+                saveText(fileName);
+                moveToNextTextarea(fileName);
+            }
+        }
+    }
+
+    function moveToNextTextarea(currentFileName) {
+        const textareas = document.querySelectorAll('textarea');
+        for (let i = 0; i < textareas.length; i++) {
+            if (textareas[i].id === currentFileName && i + 1 < textareas.length) {
+                textareas[i + 1].focus();
+                break;
+            }
+        }
+    }
+
+    function enableSaveButton(fileName) {
+        const textarea = document.getElementById(fileName);
+        const saveButton = document.getElementById('save_' + fileName);
+        saveButton.disabled = textarea.value.trim() === '';
+    }
+
+    function registerTexts() {
+        fetch('/register_texts', {
+            method: 'POST',
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message || data.error);
+        })
+        .catch(error => {
+            alert('エラーが発生しました: ' + error);
+        });
+    }
+
+    function deleteAllFiles() {
+        if (confirm("全てのファイルを削除しますか？この操作は取り消せません。")) {
+            fetch('/delete_all_files', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || data.error);
+                if (data.message) {
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+    }
+</script>
+{% endblock %}

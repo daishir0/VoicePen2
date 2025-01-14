@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+
+{% block title %}KnowledgeRecord{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1 class="text-center mb-5">音声を文字おこし <i class="fas fa-pencil-alt"></i> しましょう</h1>
+
+    <div class="row">
+        <!-- リアルタイム録音セクション -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">リアルタイム録音</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        対面会議等で、PCマイクで録音したものを文字起こしします。
+                        お手軽にご活用ください。
+                    </p>
+                    <p class="card-text">
+                        ※Teams等で、PC内で再生される音声の録音は不可です。
+                    </p>
+
+                    <button id="recordButton" class="btn btn-success btn-lg w-100">
+                        <i class="fas fa-microphone me-2"></i>録音開始
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 音声ファイルアップロードセクション -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-file-audio me-2"></i>音声ファイルをアップロード</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        過去の会議等の音声ファイルをアップロードし、文字起こしします。
+                    </p>
+                    <p class="card-text">
+                        対応形式: MP3, WAV, M4A, WEBMなど
+                    </p>
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="fileInput" accept="audio/*">
+                    </div>
+                    <button id="uploadButton" class="btn btn-success btn-lg w-100">
+                        <i class="fas fa-upload me-2"></i>アップロード
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文字起こし結果表示エリア 
+     
+    <div class="mt-5">
+        <div class="card">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">文字起こし結果</h5>
+            </div>
+            <div class="card-body">
+                <div id="transcriptionResult" class="p-3 bg-light rounded">
+                </div>
+            </div>
+        </div>
+    </div>
+    -->
+</div>
+
+<style>
+    .recording {
+        animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+        0% {
+            transform: scale(1);
+        }
+        50% {
+            transform: scale(1.05);
+        }
+        100% {
+            transform: scale(1);
+        }
+    }
+</style>
+
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+    const recordButton = document.getElementById('recordButton');
+    const fileInput = document.getElementById('fileInput');
+    const uploadButton = document.getElementById('uploadButton');
+    const transcriptionResult = document.getElementById('transcriptionResult');
+    let recordingInterval;
+    let isRecording = false;
+
+    recordButton.addEventListener('click', toggleRecording);
+    uploadButton.addEventListener('click', uploadLocalAudio);
+
+    function toggleRecording() {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    }
+
+    async function startRecording() {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        isRecording = true;
+        recordButton.textContent = '録音停止';
+        recordButton.classList.add('recording');
+
+        mediaRecorder.addEventListener('dataavailable', event => {
+            audioChunks.push(event.data);
+        });
+
+        mediaRecorder.start();
+        recordingInterval = setInterval(() => {
+            mediaRecorder.stop();
+            mediaRecorder.start();
+        }, 30000); // 30秒ごとに録音を停止して再開
+
+        mediaRecorder.addEventListener('stop', async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await uploadAudio(audioBlob);
+            audioChunks = []; // 新しい録音のためにクリア
+        });
+    }
+
+    async function uploadAudio(audioBlob) {
+        const formData = new FormData();
+        formData.append('audio_data', audioBlob);
+        await fetch('/upload_audio', {
+            method: 'POST',
+            body: formData
+        });
+    }
+
+    async function uploadLocalAudio() {
+        const file = fileInput.files[0];
+        if (!file) {
+            alert('音声ファイルを選択してください。');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('audio_data', file);
+        await fetch('/upload_local_audio', {
+            method: 'POST',
+            body: formData
+        });
+    }
+
+    function stopRecording() {
+        isRecording = false;
+        clearInterval(recordingInterval);
+        mediaRecorder.stop();
+        recordButton.textContent = '録音開始';
+        recordButton.classList.remove('recording');
+    }
+</script>
+
+{% endblock %}
