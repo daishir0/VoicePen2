@@ -3,7 +3,6 @@ from openai import OpenAI
 import os
 import tempfile
 import yaml
-import ssl
 from datetime import datetime
 from pathlib import Path
 import subprocess
@@ -80,35 +79,6 @@ def save_audio_and_text(audio_data: bytes, transcript: str) -> tuple[str, str]:
 def index():
     log("index: Rendering index.html")
     return render_template('index.html')
-
-def handle_audio_data(audio_data):
-    log("handle_audio_data: Start")
-    log(f"Received audio data size: {len(audio_data)} bytes")
-    try:
-        # OpenAI APIを使用して音声を文字起こし
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_audio:
-            temp_audio.write(audio_data)
-            temp_audio_path = temp_audio.name
-            
-            with open(temp_audio_path, 'rb') as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file
-                )
-        
-        # 音声とテキストを保存
-        audio_path, text_path = save_audio_and_text(audio_data, transcript.text)
-        
-        # 文字起こし結果をクライアントに送信
-        # socketio.emit('transcription', {
-        #     'text': transcript.text,
-        #     'audio_path': audio_path,
-        #     'text_path': text_path
-        # })
-    finally:
-        if os.path.exists(temp_audio_path):
-            os.unlink(temp_audio_path)
-    log("handle_audio_data: End")
 
 @app.route('/upload_audio', methods=['POST'])
 def upload_audio():
