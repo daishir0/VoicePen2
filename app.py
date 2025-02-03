@@ -258,7 +258,7 @@ def register_texts():
 
     # APIに送信
     response = requests.post(
-        f'{config['llmknowledge2']['api_url']}',
+        config['llmknowledge2']['api_url'],
         data={'title': '連結されたテキスト', 'text': combined_text}
     )
 
