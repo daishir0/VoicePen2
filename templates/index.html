@@ -8,6 +8,7 @@
 
     <div class="row">
         <!-- リアルタイム録音セクション -->
+        {% if config.features.realtime_recording %}
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header bg-success text-white">
@@ -28,9 +29,10 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         <!-- 音声ファイルアップロードセクション -->
-        <div class="col-md-6">
+        <div class="col-md-{% if config.features.realtime_recording %}6{% else %}12{% endif %}">
             <div class="card">
                 <div class="card-header bg-success text-white">
                     <h5 class="mb-0"><i class="fas fa-file-audio me-2"></i>音声ファイルをアップロード</h5>

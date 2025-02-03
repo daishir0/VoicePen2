@@ -11,6 +11,9 @@ import requests
 
 app = Flask(__name__)
 
+def log(message):
+    print(f"{datetime.now()} - {message}")
+
 # Load configuration
 with open('config.yaml', 'r') as config_file:
     config = yaml.safe_load(config_file)
@@ -23,9 +26,6 @@ data_dir = Path('./data')
 if not data_dir.exists():
     log("Data directory does not exist, creating it.")
     data_dir.mkdir(exist_ok=True)
-
-def log(message):
-    print(f"{datetime.now()} - {message}")
 
 def convert_to_wav(input_file: str) -> str:
     log("convert_to_wav: Start")
@@ -78,7 +78,7 @@ def save_audio_and_text(audio_data: bytes, transcript: str) -> tuple[str, str]:
 @app.route('/')
 def index():
     log("index: Rendering index.html")
-    return render_template('index.html')
+    return render_template('index.html', config=config)
 
 @app.route('/upload_audio', methods=['POST'])
 def upload_audio():
@@ -257,5 +257,9 @@ def delete_all_files():
     
 if __name__ == '__main__':
     log("Starting server")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(
+        host=config['server']['host'],
+        port=config['server']['port'],
+        debug=True
+    )
     log("Server started")
