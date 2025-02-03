@@ -45,7 +45,14 @@
                         対応形式: MP3, WAV, M4A, WEBMなど
                     </p>
                     <div class="mb-3">
-                        <input type="file" class="form-control" id="fileInput" accept="audio/*">
+                        <div class="file-upload-wrapper">
+                            <input type="file" class="form-control" id="fileInput" accept="audio/*">
+                            <div class="file-upload-message">
+                                <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
+                                <p class="mb-0">ファイルをドラッグ&ドロップ、または選択してください</p>
+                                <p class="text-muted small mb-0">対応形式: MP3, WAV, M4A, WEBM</p>
+                            </div>
+                        </div>
                     </div>
                     <button id="uploadButton" class="btn btn-success btn-lg w-100">
                         <i class="fas fa-upload me-2"></i>アップロード
@@ -55,20 +62,6 @@
         </div>
     </div>
 
-    <!-- 文字起こし結果表示エリア 
-     
-    <div class="mt-5">
-        <div class="card">
-            <div class="card-header bg-light">
-                <h5 class="mb-0">文字起こし結果</h5>
-            </div>
-            <div class="card-body">
-                <div id="transcriptionResult" class="p-3 bg-light rounded">
-                </div>
-            </div>
-        </div>
-    </div>
-    -->
 </div>
 
 <style>
@@ -86,6 +79,40 @@
         100% {
             transform: scale(1);
         }
+    }
+
+    .file-upload-wrapper {
+        position: relative;
+        text-align: center;
+        border: 2px dashed #ddd;
+        border-radius: 8px;
+        background: #f8f9fa;
+        padding: 2rem 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .file-upload-wrapper:hover {
+        background: #fff;
+        border-color: #198754;
+    }
+
+    .file-upload-wrapper input[type="file"] {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    .file-upload-message {
+        color: #6c757d;
+    }
+
+    .file-upload-wrapper.dragover {
+        background: #fff;
+        border-color: #198754;
     }
 </style>
 
@@ -166,6 +193,55 @@
         recordButton.textContent = '録音開始';
         recordButton.classList.remove('recording');
     }
+
+    // ドラッグ&ドロップのイベントハンドラを追加
+    const fileUploadWrapper = document.querySelector('.file-upload-wrapper');
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        fileUploadWrapper.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        fileUploadWrapper.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        fileUploadWrapper.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight(e) {
+        fileUploadWrapper.classList.add('dragover');
+    }
+
+    function unhighlight(e) {
+        fileUploadWrapper.classList.remove('dragover');
+    }
+
+    fileUploadWrapper.addEventListener('drop', handleDrop, false);
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        fileInput.files = files;
+    }
+
+    // ファイル選択時のフィードバック
+    fileInput.addEventListener('change', function(e) {
+        const fileName = e.target.files[0]?.name;
+        if (fileName) {
+            const messageElement = fileUploadWrapper.querySelector('.file-upload-message');
+            messageElement.innerHTML = `
+                <i class="fas fa-check-circle fa-2x mb-2 text-success"></i>
+                <p class="mb-0 text-success">${fileName}</p>
+                <p class="text-muted small mb-0">クリックまたはドラッグ&ドロップで変更</p>
+            `;
+        }
+    });
 </script>
 
 {% endblock %}
