@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 from pydub import AudioSegment
 import requests
+import shutil
+import re  # 正規表現用のモジュールを追加
 
 app = Flask(__name__)
 
@@ -23,238 +25,257 @@ client = OpenAI(api_key=config['openai']['api_key'])
 
 # データ保存用のディレクトリを作成
 data_dir = Path('./data')
+tobeprocess_dir = Path('./ToBeProcessed')
 if not data_dir.exists():
     log("Data directory does not exist, creating it.")
     data_dir.mkdir(exist_ok=True)
 
-def convert_to_wav(input_file: str) -> str:
-    log("convert_to_wav: Start")
-    file_name, file_extension = os.path.splitext(input_file)
-    wav_file = file_name + '.wav'
-    
-    if not os.path.exists(wav_file):
-        log("convert_to_wav: Converting file")
-        if file_extension.lower() in ['.mp3', '.m4a', '.mp4', '.webm']:
-            try:
-                subprocess.run(['ffmpeg', '-i', input_file, '-acodec', 'pcm_s16le', '-ar', '16000', wav_file], check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as e:
-                log(f"convert_to_wav: ffmpeg error: {e.stderr}")
-                raise
-        else:
-            log("convert_to_wav: Unsupported file format")
-            raise ValueError(f"Unsupported file format: {file_extension}")
-    
-    log("convert_to_wav: End")
-    return wav_file
+if not tobeprocess_dir.exists():
+    log("ToBeProcessed directory does not exist, creating it.")
+    tobeprocess_dir.mkdir(exist_ok=True)
 
-def save_audio_and_text(audio_data: bytes, transcript: str) -> tuple[str, str]:
-    """音声データとテキストを保存し、ファイルパスを返す"""
+def get_unique_directory_name(base_dir):
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    audio_path = data_dir / f"{timestamp}.mp3"
-    text_path = data_dir / f"{timestamp}.txt"
-    
-    # 一時的なwebmファイルを作成
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_audio:
-        temp_audio.write(audio_data)
-        temp_path = temp_audio.name
-
-    try:
-        # MP3に変換
-        subprocess.run([
-            'ffmpeg', '-i', temp_path,
-            '-acodec', 'libmp3lame',
-            str(audio_path)
-        ], check=True, capture_output=True, text=True)
-        
-        # テキストを保存
-        text_path.write_text(transcript, encoding='utf-8')
-        
-        log(f"Files saved: {audio_path}, {text_path}")
-        return str(audio_path), str(text_path)
-    finally:
-        # 一時ファイルを削除
-        os.unlink(temp_path)
+    base_path = base_dir / timestamp
+    counter = 1
+    while base_path.exists():
+        base_path = base_dir / f"{timestamp}-{counter:02d}"
+        counter += 1
+    return base_path
 
 @app.route('/')
 def index():
-    log("index: Rendering index.html")
+    """デフォルトページとしてindex.htmlを表示"""
     return render_template('index.html', config=config)
 
-@app.route('/upload_audio', methods=['POST'])
-def upload_audio():
-    if 'audio_data' not in request.files:
-        return jsonify({'error': 'No audio data provided'}), 400
+@app.route('/record')
+def record():
+    # セキュリティチェック: sパラメータの検証
+    dir_name = request.args.get('s')
+    if not dir_name or not dir_name.replace('-', '').isalnum():
+        return "無効なデータ名", 400
 
-    audio_file = request.files['audio_data']
-    audio_data = audio_file.read()
+    # ディレクトリパスの構築
+    dir_path = data_dir / dir_name
 
-    try:
-        # 一時ファイルに保存してWhisper APIで文字起こし
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_audio:
-            temp_audio.write(audio_data)
-            temp_path = temp_audio.name
+    # ディレクトリが存在しない場合
+    if not dir_path.exists():
+        return "ディレクトリが見つかりません", 404
+
+    # メディアファイルの検索（video.mp4を優先）
+    media_files = list(dir_path.glob('video.mp4')) or list(dir_path.glob('audio.mp3'))
+    if not media_files:
+        return "メディアファイルが見つかりません", 404
+
+    is_video = media_files[0].suffix == '.mp4'
+    media_path = f"/{'video' if is_video else 'audio'}/{dir_name}/{media_files[0].name}"
+    media_type = 'video/mp4' if is_video else 'audio/mpeg'
+
+    # デバッグログ
+    print(f"Debug - File Info:")
+    print(f"  - Original File: {media_files[0]}")
+    print(f"  - Is Video: {is_video}")
+    print(f"  - Media Type: {media_type}")
+    print(f"  - Media Path: {media_path}")
+
+    # テキストファイルの取得（ソート）
+    text_files = sorted(list(dir_path.glob('*.txt')), key=lambda x: x.name)
+
+    # 再生開始時間の取得と処理
+    time_param = request.args.get('t', '0')
+    # 's'サフィックスがある場合は削除して数値のみに
+    start_time = time_param[:-1] if time_param.endswith('s') else time_param
+
+    return render_template('record.html', 
+                           media_path=media_path, 
+                           media_type=media_type, 
+                           text_files=text_files,
+                           start_time=start_time)
+
+@app.route('/audio/<dir_name>/<filename>')
+@app.route('/video/<dir_name>/<filename>')
+def serve_media(dir_name, filename):
+    # セキュリティチェック
+    if not dir_name.replace('-', '').isalnum() or not filename.replace('.', '').isalnum():
+        return "無効なファイル名", 400
+
+    media_path = data_dir / dir_name / filename
+    if not media_path.exists():
+        return "ファイルが見つかりません", 404
+
+    return send_file(media_path)
+
+@app.route('/list')
+def list_recordings():
+    directories = []
+    for dir_path in data_dir.iterdir():
+        if dir_path.is_dir():
+            # ディレクトリ内のファイル数をカウント
+            file_count = len(list(dir_path.glob('*')))
             
-            with open(temp_path, 'rb') as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file
-                )
-
-        # 音声とテキストを保存
-        audio_path, text_path = save_audio_and_text(audio_data, transcript.text)
-        
-        return jsonify({
-            'message': 'Audio processed successfully',
-            'audio_path': audio_path,
-            'text_path': text_path,
-            'transcript': transcript.text
-        }), 200
-
-    except Exception as e:
-        log(f"Error processing audio: {str(e)}")
-        return jsonify({'error': 'Failed to process audio'}), 500
-
-    finally:
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
-
-@app.route('/upload_local_audio', methods=['POST'])
-def upload_local_audio():
-    if 'audio_data' not in request.files:
-        return jsonify({'error': 'No audio data provided'}), 400
-
-    audio_file = request.files['audio_data']
-    audio_data = audio_file.read()
-
-    # 一時ファイルに保存
-    temp_audio_path = './temp_audio.webm'
-    with open(temp_audio_path, 'wb') as temp_audio:
-        temp_audio.write(audio_data)
-
-    try:
-        # 音声ファイルを30秒ごとに分割
-        audio = AudioSegment.from_file(temp_audio_path)
-        duration_ms = len(audio)
-        chunk_duration_ms = 30 * 1000  # 30秒
-        chunk_filepaths = []
-
-        for start_time in range(0, duration_ms, chunk_duration_ms):
-            end_time = min(start_time + chunk_duration_ms, duration_ms)
-            chunk_audio = audio[start_time:end_time]
-            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-            chunk_filepath = data_dir / f"{timestamp}.mp3"
-            chunk_audio.export(chunk_filepath, format='mp3')
-            chunk_filepaths.append(chunk_filepath)
-
-            # Whisper APIで文字起こし
-            with open(chunk_filepath, 'rb') as chunk_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=chunk_file
-                )
+            # 作成日時と更新日時を取得
+            created_at = datetime.fromtimestamp(dir_path.stat().st_ctime).strftime('%Y-%m-%d %H:%M:%S')
+            updated_at = datetime.fromtimestamp(dir_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
             
-            # テキストを保存
-            text_filepath = data_dir / f"{timestamp}.txt"
-            text_filepath.write_text(transcript.text, encoding='utf-8')
-
-        return jsonify({
-            'message': 'Audio processed successfully',
-            'chunks': [str(filepath) for filepath in chunk_filepaths]
-        }), 200
-
-    except Exception as e:
-        log(f"Error processing audio: {str(e)}")
-        return jsonify({'error': 'Failed to process audio'}), 500
-
-    finally:
-        if os.path.exists(temp_audio_path):
-            os.unlink(temp_audio_path)
-
-@app.route('/edit')
-def edit():
-    log("edit: Rendering edit.html")
-    # ファイルの作成日時でソート
-    text_files = sorted(list(data_dir.glob('*.txt')), key=lambda x: x.stat().st_ctime)
-    audio_files = {file.stem: file.with_suffix('.mp3') for file in text_files}
-    return render_template('edit.html', text_files=text_files, audio_files=audio_files)
-
-@app.route('/save_text', methods=['POST'])
-def save_text():
-    data = request.json  # JSON形式でデータを取得
-    file_name = data.get('file_name')
-    new_content = data.get('content')
+            directories.append({
+                'name': dir_path.name,
+                'created_at': created_at,
+                'updated_at': updated_at,
+                'file_count': file_count
+            })
     
-    if file_name and new_content:
-        text_path = data_dir / file_name
-        text_path.write_text(new_content, encoding='utf-8')
-        log(f"Updated text file: {text_path}")
-        return jsonify({'message': 'File updated successfully'}), 200
-    return jsonify({'error': 'Invalid data'}), 400
+    # 作成日時の降順でソート
+    directories.sort(key=lambda x: x['created_at'], reverse=True)
+    
+    return render_template('list.html', directories=directories)
 
-@app.route('/audio/<filename>')
-def audio(filename):
-    """MP3ファイルを提供するエンドポイント"""
-    audio_path = data_dir / filename
-    if audio_path.exists():
-        return send_file(audio_path)
-    return jsonify({'error': 'File not found'}), 404
-
-@app.route('/delete_files', methods=['POST'])
-def delete_files():
-    file_name = request.json.get('file_name')
-    if file_name:
-        text_path = data_dir / file_name
-        audio_path = data_dir / file_name.replace('.txt', '.mp3')
-
-        try:
-            if text_path.exists():
-                text_path.unlink()  # テキストファイルを削除
-            if audio_path.exists():
-                audio_path.unlink()  # MP3ファイルを削除
-            return jsonify({'message': 'Files deleted successfully'}), 200
-        except Exception as e:
-            return jsonify({'error': f'Failed to delete files: {str(e)}'}), 500
-
-    return jsonify({'error': 'Invalid file name'}), 400
-
-@app.route('/register_texts', methods=['POST'])
-def register_texts():
-    """テキストファイルを連結して外部APIに登録するエンドポイント"""
-    text_files = sorted(data_dir.glob('*.txt'))  # テキストファイルを昇順にソート
-    combined_text = ""
-
-    for text_file in text_files:
-        combined_text += text_file.read_text(encoding='utf-8') + "\n"
-
-    # APIに送信
-    response = requests.post(
-        config['llmknowledge2']['api_url'],
-        data={'title': '連結されたテキスト', 'text': combined_text}
-    )
-
-    if response.ok:
-        result = response.json()
-        return jsonify(result), 200
-    else:
-        return jsonify({'error': 'Failed to register texts'}), 500
-
-@app.route('/delete_all_files', methods=['POST'])
-def delete_all_files():
-    """データディレクトリ内の全てのテキストファイルとMP3ファイルを削除する"""
+@app.route('/rename_directory', methods=['POST'])
+def rename_directory():
+    data = request.json
+    old_name = data.get('old_name')
+    new_name = data.get('new_name')
+    
+    if not old_name or not new_name:
+        return jsonify({'error': '無効な名前です'}), 400
+    
+    old_path = data_dir / old_name
+    new_path = data_dir / new_name
+    
     try:
-        # テキストファイルを削除
-        for text_file in data_dir.glob('*.txt'):
-            text_file.unlink()
+        if new_path.exists():
+            return jsonify({'error': '同じ名前のデータが既に存在します'}), 400
         
-        # MP3ファイルを削除
-        for audio_file in data_dir.glob('*.mp3'):
-            audio_file.unlink()
-        
-        return jsonify({'message': '全てのファイルが削除されました'}), 200
+        old_path.rename(new_path)
+        return jsonify({'message': 'データ名を変更しました'}), 200
     except Exception as e:
-        log(f"Error deleting all files: {str(e)}")
-        return jsonify({'error': 'ファイルの削除中にエラーが発生しました'}), 500
+        return jsonify({'error': f'データ名の変更に失敗しました: {str(e)}'}), 500
+
+@app.route('/delete_directory', methods=['POST'])
+def delete_directory():
+    data = request.json
+    dir_name = data.get('dir_name')
     
+    if not dir_name:
+        return jsonify({'error': '無効なデータ名です'}), 400
+    
+    dir_path = data_dir / dir_name
+    
+    try:
+        # ディレクトリを完全に削除
+        shutil.rmtree(dir_path)
+        return jsonify({'message': 'データを削除しました'}), 200
+    except Exception as e:
+        return jsonify({'error': f'データの削除に失敗しました: {str(e)}'}), 500
+
+@app.route('/upload_media', methods=['POST'])
+def upload_media():
+    if 'media_data' not in request.files:
+        return jsonify({'error': 'No media data provided'}), 400
+
+    files = request.files.getlist('media_data')
+    processed_files = []
+
+    # 同じタイムスタンプのディレクトリを作成
+    base_dir = get_unique_directory_name(tobeprocess_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, media_file in enumerate(files, 1):
+        # ファイルの拡張子を取得
+        original_filename = media_file.filename
+        file_ext = os.path.splitext(original_filename)[1].lower()
+
+        # ファイル名を決定
+        if file_ext in ['.mp3', '.wav', '.m4a', '.webm']:
+            target_filename = 'audio.mp3'
+        elif file_ext in ['.mp4', '.avi', '.mov', '.mkv']:
+            target_filename = 'video.mp4'
+        else:
+            return jsonify({'error': f'Unsupported file type: {file_ext}'}), 400
+
+        # ファイルを保存
+        full_path = base_dir / target_filename
+        media_file.save(full_path)
+        processed_files.append(str(full_path))
+
+    return jsonify({
+        'message': 'Files uploaded successfully',
+        'files': processed_files
+    }), 200
+
+@app.route('/register_to_knowledge_db', methods=['POST'])
+def register_to_knowledge_db():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'JSONデータが見つかりません'}), 400
+            
+        dir_name = data.get('dir_name')
+        if not dir_name:
+            return jsonify({'error': '無効なデータ名です'}), 400
+        
+        dir_path = data_dir / dir_name
+        if not dir_path.exists():
+            return jsonify({'error': 'データが見つかりません'}), 404
+        
+        # テキストファイルを取得してソート
+        text_files = sorted(list(dir_path.glob('*.txt')), key=lambda x: x.name)
+        if not text_files:
+            return jsonify({'error': 'テキストファイルが見つかりません'}), 404
+        
+        # 結合するテキストを準備
+        combined_text = []
+        
+        for text_file in text_files:
+            # ファイル名から秒数を計算
+            match = re.match(r'(\d{2})(\d{2})(\d{2})\.txt', text_file.name)
+            if match:
+                hours = int(match.group(1))
+                minutes = int(match.group(2))
+                seconds = int(match.group(3))
+                total_seconds = hours * 3600 + minutes * 60 + seconds
+                
+                # ファイルの内容を読み込み
+                content = text_file.read_text(encoding='utf-8').strip()
+                
+                # テキストを追加
+                combined_text.append(content)
+                combined_text.append(f"この発言の参照URL：{config['voicepen2']['base_url']}record?s={dir_name}&t={total_seconds}s")
+                combined_text.append("")  # 空行を追加
+        
+        # 最終的なテキストを作成
+        final_text = "\n".join(combined_text)
+        
+        # リクエストヘッダーの設定
+        headers = {
+            'Authorization': f'Bearer {config["llmknowledge2"]["api_key"]}',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        # KnowledgeDBへの登録処理
+        response = requests.post(
+            config['llmknowledge2']['api_url'],
+            headers=headers,
+            data={
+                'action': 'create_record',
+                'title': f'音声文字起こし: {dir_name}',
+                'text': final_text,
+                'reference': ''
+            }
+        )
+
+        if response.ok:
+            result = response.json()
+            if result.get('success'):
+                return jsonify({'message': 'KnowledgeDBへの登録が完了しました'}), 200
+            else:
+                return jsonify({'error': result.get('message', 'KnowledgeDBへの登録に失敗しました')}), 500
+        else:
+            return jsonify({'error': f'KnowledgeDBへの登録に失敗しました: HTTP {response.status_code}'}), 500
+        
+    except Exception as e:
+        print(f"Error in register_to_knowledge_db: {str(e)}")  # デバッグ用ログ
+        return jsonify({'error': f'KnowledgeDBへの登録に失敗しました: {str(e)}'}), 500
+
 if __name__ == '__main__':
     log("Starting server")
     app.run(

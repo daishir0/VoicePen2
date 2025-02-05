@@ -42,21 +42,32 @@
                         過去の会議等の音声ファイルをアップロードし、文字起こしします。
                     </p>
                     <p class="card-text">
-                        対応形式: MP3, WAV, M4A, WEBMなど
+                        対応形式: MP3, WAV, M4A, WEBM, MP4
                     </p>
                     <div class="mb-3">
                         <div class="file-upload-wrapper">
-                            <input type="file" class="form-control" id="fileInput" accept="audio/*">
+                            <input type="file" multiple class="form-control" id="fileInput" accept="audio/*,video/mp4">
                             <div class="file-upload-message">
                                 <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
                                 <p class="mb-0">ファイルをドラッグ&ドロップ、または選択してください</p>
-                                <p class="text-muted small mb-0">対応形式: MP3, WAV, M4A, WEBM</p>
+                                <p class="text-muted small mb-0">対応形式: MP3, WAV, M4A, WEBM, MP4</p>
                             </div>
                         </div>
                     </div>
                     <button id="uploadButton" class="btn btn-success btn-lg w-100">
                         <i class="fas fa-upload me-2"></i>アップロード
                     </button>
+                    <div id="uploadProgress" class="mt-3 d-none">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" 
+                                 style="width: 0%" 
+                                 aria-valuenow="0" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">0%</div>
+                        </div>
+                    </div>
+                    <div id="uploadStatus" class="mt-3"></div>
                 </div>
             </div>
         </div>
@@ -65,22 +76,6 @@
 </div>
 
 <style>
-    .recording {
-        animation: pulse 1s infinite;
-    }
-
-    @keyframes pulse {
-        0% {
-            transform: scale(1);
-        }
-        50% {
-            transform: scale(1.05);
-        }
-        100% {
-            transform: scale(1);
-        }
-    }
-
     .file-upload-wrapper {
         position: relative;
         text-align: center;
@@ -106,10 +101,6 @@
         cursor: pointer;
     }
 
-    .file-upload-message {
-        color: #6c757d;
-    }
-
     .file-upload-wrapper.dragover {
         background: #fff;
         border-color: #198754;
@@ -117,94 +108,58 @@
 </style>
 
 <script>
-    let mediaRecorder;
-    let audioChunks = [];
-    const recordButton = document.getElementById('recordButton');
+    console.log('Script loaded');
     const fileInput = document.getElementById('fileInput');
     const uploadButton = document.getElementById('uploadButton');
-    const transcriptionResult = document.getElementById('transcriptionResult');
-    let recordingInterval;
-    let isRecording = false;
-
-    recordButton.addEventListener('click', toggleRecording);
-    uploadButton.addEventListener('click', uploadLocalAudio);
-
-    function toggleRecording() {
-        if (isRecording) {
-            stopRecording();
-        } else {
-            startRecording();
-        }
-    }
-
-    async function startRecording() {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-        isRecording = true;
-        recordButton.textContent = '録音停止';
-        recordButton.classList.add('recording');
-
-        mediaRecorder.addEventListener('dataavailable', event => {
-            audioChunks.push(event.data);
-        });
-
-        mediaRecorder.start();
-        recordingInterval = setInterval(() => {
-            mediaRecorder.stop();
-            mediaRecorder.start();
-        }, 30000); // 30秒ごとに録音を停止して再開
-
-        mediaRecorder.addEventListener('stop', async () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            await uploadAudio(audioBlob);
-            audioChunks = []; // 新しい録音のためにクリア
-        });
-    }
-
-    async function uploadAudio(audioBlob) {
-        const formData = new FormData();
-        formData.append('audio_data', audioBlob);
-        await fetch('/upload_audio', {
-            method: 'POST',
-            body: formData
-        });
-    }
-
-    async function uploadLocalAudio() {
-        const file = fileInput.files[0];
-        if (!file) {
-            alert('音声ファイルを選択してください。');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('audio_data', file);
-        await fetch('/upload_local_audio', {
-            method: 'POST',
-            body: formData
-        });
-    }
-
-    function stopRecording() {
-        isRecording = false;
-        clearInterval(recordingInterval);
-        mediaRecorder.stop();
-        recordButton.textContent = '録音開始';
-        recordButton.classList.remove('recording');
-    }
-
-    // ドラッグ&ドロップのイベントハンドラを追加
+    const uploadStatus = document.getElementById('uploadStatus');
     const fileUploadWrapper = document.querySelector('.file-upload-wrapper');
 
+    // デバッグ用のログ関数
+    function debugLog(message) {
+        console.log(`[DEBUG] ${message}`);
+        uploadStatus.innerHTML += `<div class="text-muted">${message}</div>`;
+    }
+
+    // ドラッグ&ドロップのイベントハンドラ
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // debugLog('Prevent defaults triggered');
+    }
+
+    function highlight(e) {
+        fileUploadWrapper.classList.add('dragover');
+        // debugLog('Highlight triggered');
+    }
+
+    function unhighlight(e) {
+        fileUploadWrapper.classList.remove('dragover');
+        // debugLog('Unhighlight triggered');
+    }
+
+    function handleDrop(e) {
+        // debugLog('Drop event triggered');
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        fileInput.files = files;
+        
+        // ドロップされたファイル名を表示
+        if (files.length > 0) {
+            const fileNames = Array.from(files).map(f => f.name).join(', ');
+            // debugLog(`Dropped files: ${fileNames}`);
+            const messageElement = fileUploadWrapper.querySelector('.file-upload-message');
+            messageElement.innerHTML = `
+                <i class="fas fa-check-circle fa-2x mb-2 text-success"></i>
+                <p class="mb-0 text-success">${fileNames}</p>
+                <p class="text-muted small mb-0">クリックまたはドラッグ&ドロップで変更</p>
+            `;
+        }
+    }
+
+    // イベントリスナーの追加
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         fileUploadWrapper.addEventListener(eventName, preventDefaults, false);
     });
-
-    function preventDefaults (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
 
     ['dragenter', 'dragover'].forEach(eventName => {
         fileUploadWrapper.addEventListener(eventName, highlight, false);
@@ -214,30 +169,96 @@
         fileUploadWrapper.addEventListener(eventName, unhighlight, false);
     });
 
-    function highlight(e) {
-        fileUploadWrapper.classList.add('dragover');
-    }
-
-    function unhighlight(e) {
-        fileUploadWrapper.classList.remove('dragover');
-    }
-
     fileUploadWrapper.addEventListener('drop', handleDrop, false);
 
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        fileInput.files = files;
-    }
+    // アップロードボタンのイベントリスナー
+    uploadButton.addEventListener('click', async function() {
+        const files = fileInput.files;
+        
+        if (files.length === 0) {
+            alert('音声ファイルを選択してください。');
+            return;
+        }
 
-    // ファイル選択時のフィードバック
+        const formData = new FormData();
+        for (let file of files) {
+            formData.append('media_data', file);
+        }
+        
+        try {
+            uploadStatus.innerHTML = '<div class="alert alert-info">アップロード中...</div>';
+            const progressDiv = document.getElementById('uploadProgress');
+            const progressBar = progressDiv.querySelector('.progress-bar');
+            progressDiv.classList.remove('d-none');
+            
+            // XMLHttpRequestを使用して進捗を追跡
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload_media', true);
+
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = Math.round((e.loaded / e.total) * 100);
+                    progressBar.style.width = percentComplete + '%';
+                    progressBar.setAttribute('aria-valuenow', percentComplete);
+                    progressBar.textContent = percentComplete + '%';
+                }
+            };
+
+            xhr.onload = function() {
+                progressDiv.classList.add('d-none');
+                if (xhr.status === 200) {
+                    const result = JSON.parse(xhr.responseText);
+                    uploadStatus.innerHTML = `
+                        <div class="alert alert-success">
+                            ファイルのアップロードに成功しました。
+                        </div>
+                    `;
+                    fileInput.value = '';
+                    const messageElement = fileUploadWrapper.querySelector('.file-upload-message');
+                    messageElement.innerHTML = `
+                        <i class="fas fa-cloud-upload-alt fa-2x mb-2"></i>
+                        <p class="mb-0">ファイルをドラッグ&ドロップ、または選択してください</p>
+                        <p class="text-muted small mb-0">対応形式: MP3, WAV, M4A, WEBM, MP4</p>
+                    `;
+                } else {
+                    uploadStatus.innerHTML = `
+                        <div class="alert alert-danger">
+                            アップロードに失敗しました: ${xhr.responseText}
+                        </div>
+                    `;
+                }
+            };
+
+            xhr.onerror = function() {
+                progressDiv.classList.add('d-none');
+                uploadStatus.innerHTML = `
+                    <div class="alert alert-danger">
+                        エラーが発生しました: アップロード中にエラーが発生しました
+                    </div>
+                `;
+            };
+
+            xhr.send(formData);
+
+        } catch (error) {
+            uploadStatus.innerHTML = `
+                <div class="alert alert-danger">
+                    エラーが発生しました: ${error.message}
+                </div>
+            `;
+        }
+    });
+
+    // ファイル選択時のイベントリスナー
     fileInput.addEventListener('change', function(e) {
-        const fileName = e.target.files[0]?.name;
-        if (fileName) {
+        const files = e.target.files;
+        if (files.length > 0) {
+            const fileNames = Array.from(files).map(f => f.name).join(', ');
+            // debugLog(`Files selected: ${fileNames}`);
             const messageElement = fileUploadWrapper.querySelector('.file-upload-message');
             messageElement.innerHTML = `
                 <i class="fas fa-check-circle fa-2x mb-2 text-success"></i>
-                <p class="mb-0 text-success">${fileName}</p>
+                <p class="mb-0 text-success">${fileNames}</p>
                 <p class="text-muted small mb-0">クリックまたはドラッグ&ドロップで変更</p>
             `;
         }

@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+
+{% block title %}録音詳細編集{% endblock %}
+
+{% block content %}
+<style>
+    .player-sticky {
+        position: sticky;
+        top: 1rem;
+        z-index: 9999;
+        background: white;
+        margin-bottom: 1rem;
+    }
+</style>
+
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card player-sticky">
+                <div class="card-body">
+                    {% if media_type == 'video/mp4' %}
+                    <video id="mediaPlayer" controls class="w-100">
+                        <source src="{{ media_path }}" type="{{ media_type }}">
+                        お使いのブラウザはビデオタグに対応していません。
+                    </video>
+                    {% else %}
+                    <audio id="mediaPlayer" controls class="w-100">
+                        <source src="{{ media_path }}" type="{{ media_type }}">
+                        お使いのブラウザはオーディオタグに対応していません。
+                    </audio>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    {% for text_file in text_files %}
+                    <div class="mb-3">
+                        <textarea 
+                            id="{{ text_file.name }}" 
+                            class="form-control" 
+                            rows="10" 
+                            oninput="enableSaveButton('{{ text_file.name }}')"
+                            onkeydown="handleKeyDown(event, '{{ text_file.name }}')"
+                        >{{ text_file.read_text(encoding='utf-8') }}</textarea>
+                        <div class="d-flex justify-content-end align-items-center mb-2">
+                            <h5 class="mb-0 me-3">{{ text_file.name }}</h5>
+                            <button onclick="seekToTime('{{ text_file.name }}')" class="btn btn-sm btn-primary me-2">
+                                この時点から再生
+                            </button>
+                            <button 
+                                id="save_{{ text_file.name }}" 
+                                onclick="saveText('{{ text_file.name }}')" 
+                                class="btn btn-success" 
+                                disabled
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const mediaPlayer = document.getElementById('mediaPlayer');
+    // バックエンドから渡されたstart_timeを使用
+    const startTime = parseInt('{{ start_time }}');
+
+    // 初期化時に指定された秒数で一時停止
+    mediaPlayer.addEventListener('loadedmetadata', () => {
+        mediaPlayer.currentTime = startTime;
+        mediaPlayer.pause();
+    });
+
+    // キーボードショートカット
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey) {
+            switch(e.key) {
+                case 'ArrowRight':
+                    e.preventDefault();
+                    mediaPlayer.currentTime += 10;
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    mediaPlayer.currentTime -= 10;
+                    break;
+            }
+        }
+    });
+
+    function seekToTime(fileName) {
+        const match = fileName.match(/(\d{6})\.txt/);
+        if (match) {
+            const hours = parseInt(match[1].substring(0, 2));
+            const minutes = parseInt(match[1].substring(2, 4));
+            const seconds = parseInt(match[1].substring(4, 6));
+            const seekTime = hours * 3600 + minutes * 60 + seconds;
+            mediaPlayer.currentTime = seekTime;
+        }
+    }
+
+    function saveText(fileName) {
+        const textarea = document.getElementById(fileName);
+        if (textarea.value.trim() === '') {
+            alert('テキストを入力してください。');
+            return;
+        }
+
+        fetch('/save_text', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                file_name: fileName, 
+                content: textarea.value 
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('save_' + fileName).disabled = true;
+        });
+    }
+
+    function handleKeyDown(event, fileName) {
+        const textarea = document.getElementById(fileName);
+        const textareas = document.querySelectorAll('textarea');
+
+        if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+            event.preventDefault();
+            if (textarea.value.trim() !== '') {
+                saveText(fileName);
+            }
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'ArrowDown') {
+            event.preventDefault();
+            for (let i = 0; i < textareas.length; i++) {
+                if (textareas[i].id === fileName && i + 1 < textareas.length) {
+                    textareas[i + 1].focus();
+                    break;
+                }
+            }
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'ArrowUp') {
+            event.preventDefault();
+            for (let i = 0; i < textareas.length; i++) {
+                if (textareas[i].id === fileName && i > 0) {
+                    textareas[i - 1].focus();
+                    break;
+                }
+            }
+        }
+    }
+
+    function enableSaveButton(fileName) {
+        const textarea = document.getElementById(fileName);
+        const saveButton = document.getElementById('save_' + fileName);
+        saveButton.disabled = textarea.value.trim() === '';
+    }
+</script>
+{% endblock %}

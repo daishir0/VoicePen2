@@ -4,8 +4,12 @@ openai:
 huggingface:
   use_auth_token: "HUGGINGFACE_AUTH_TOKEN"
 
+voicepen2:
+  base_url: "https://<domain_of_voicepen2>/"
+
 llmknowledge2:
   api_url: "https://<domain_of_llmknowledge2>/LLMKnowledge2/api.php"
+  api_key: "api_key_for_llmknowledge2_api.php"
 
 features:
   realtime_recording: false  # リアルタイム録音機能の有効/無効
