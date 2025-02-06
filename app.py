@@ -34,12 +34,25 @@ if not tobeprocess_dir.exists():
     log("ToBeProcessed directory does not exist, creating it.")
     tobeprocess_dir.mkdir(exist_ok=True)
 
-def get_unique_directory_name(base_dir):
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    base_path = base_dir / timestamp
+def sanitize_directory_name(filename):
+    """ファイル名から安全なディレクトリ名を生成する"""
+    # 拡張子を除去
+    name_without_ext = os.path.splitext(filename)[0]
+    # 特殊文字を除去し、アンダースコアに置換
+    safe_name = re.sub(r'[^\w\s-]', '', name_without_ext)
+    safe_name = re.sub(r'[-\s]+', '_', safe_name)
+    # 先頭と末尾の特殊文字を除去
+    safe_name = safe_name.strip('_')
+    # 空の場合はデフォルト名を使用
+    return safe_name if safe_name else 'unnamed'
+
+def get_unique_directory_name(base_dir, original_filename):
+    """ファイル名を基にユニークなディレクトリ名を生成する"""
+    base_name = sanitize_directory_name(original_filename)
+    base_path = base_dir / base_name
     counter = 1
     while base_path.exists():
-        base_path = base_dir / f"{timestamp}-{counter:02d}"
+        base_path = base_dir / f"{base_name}-{counter:02d}"
         counter += 1
     return base_path
 
@@ -52,7 +65,7 @@ def index():
 def record():
     # セキュリティチェック: sパラメータの検証
     dir_name = request.args.get('s')
-    if not dir_name or not dir_name.replace('-', '').isalnum():
+    if not dir_name or '..' in dir_name or '/' in dir_name or '\\' in dir_name:
         return "無効なデータ名", 400
 
     # ディレクトリパスの構築
@@ -96,7 +109,8 @@ def record():
 @app.route('/video/<dir_name>/<filename>')
 def serve_media(dir_name, filename):
     # セキュリティチェック
-    if not dir_name.replace('-', '').isalnum() or not filename.replace('.', '').isalnum():
+    if '..' in dir_name or '/' in dir_name or '\\' in dir_name or \
+       '..' in filename or '/' in filename or '\\' in filename:
         return "無効なファイル名", 400
 
     media_path = data_dir / dir_name / filename
@@ -175,11 +189,11 @@ def upload_media():
     files = request.files.getlist('media_data')
     processed_files = []
 
-    # 同じタイムスタンプのディレクトリを作成
-    base_dir = get_unique_directory_name(tobeprocess_dir)
-    base_dir.mkdir(parents=True, exist_ok=True)
+    for media_file in files:
+        # 各ファイルごとにユニークなディレクトリを作成
+        base_dir = get_unique_directory_name(tobeprocess_dir, media_file.filename)
+        base_dir.mkdir(parents=True, exist_ok=True)
 
-    for index, media_file in enumerate(files, 1):
         # ファイルの拡張子を取得
         original_filename = media_file.filename
         file_ext = os.path.splitext(original_filename)[1].lower()
@@ -259,7 +273,7 @@ def register_to_knowledge_db():
                 'action': 'create_record',
                 'title': f'音声文字起こし: {dir_name}',
                 'text': final_text,
-                'reference': ''
+                'reference': f"{config['voicepen2']['base_url']}record?s={dir_name}"
             }
         )
 
