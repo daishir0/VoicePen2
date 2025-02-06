@@ -2,3 +2,6 @@ config.yaml
 
 data/
 ToBeProcessed/
+
+# バックエンドタスクファイル
+conv.py
