@@ -5,3 +5,5 @@ ToBeProcessed/
 
 # バックエンドタスクファイル
 conv.py
+conv.sh
+conv.log

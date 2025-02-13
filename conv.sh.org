@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cd /home/ec2-user/VoicePen2
+source /home/ec2-user/.bashrc
+python3 conv.py >> /home/ec2-user/VoicePen2/conv.log 2>&1 

@@ -16,7 +16,7 @@ DATA_DIR = SCRIPT_DIR / 'data'
 LOCK_PATH = Path('/tmp/voicepen.lock')
 
 # ffmpegコマンドのフルパス（環境に応じて変更）
-FFMPEG_CMD = 'ffmpeg'  # または '/usr/bin/ffmpeg' のように絶対パスで指定
+FFMPEG_CMD = '/usr/local/bin/ffmpeg/ffmpeg-6.0-amd64-static/ffmpeg'  # または '/usr/bin/ffmpeg' のように絶対パスで指定
 
 def log(message):
     print(f"{datetime.now()} - {message}")

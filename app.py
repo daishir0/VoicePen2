@@ -292,9 +292,11 @@ def register_to_knowledge_db():
 
 if __name__ == '__main__':
     log("Starting server")
+    # 環境変数を設定
+    os.environ['FLASK_ENV'] = 'production'
     app.run(
         host=config['server']['host'],
         port=config['server']['port'],
-        debug=True
+        debug=config['server'].get('debug', False)  # デフォルトはFalse
     )
     log("Server started")
